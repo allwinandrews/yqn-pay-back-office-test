@@ -43,6 +43,7 @@ export default function HomeClient() {
     merchantId: "",
     reference: "",
     amount: "",
+    fee: "",
     occurredAt: "",
   });
   const [filters, setFilters] = useState(defaultFilters);
@@ -82,6 +83,18 @@ export default function HomeClient() {
     return `/api/export?${params.toString()}`;
   }, [appliedFilters]);
 
+  const todayDate = new Date().toISOString().slice(0, 10);
+  const amountNumber = Number(createForm.amount);
+  const feeNumber = Number(createForm.fee);
+  const computedNet =
+    Number.isFinite(amountNumber) &&
+    amountNumber > 0 &&
+    Number.isFinite(feeNumber) &&
+    feeNumber >= 0 &&
+    feeNumber < amountNumber
+      ? Math.round((amountNumber - feeNumber) * 100) / 100
+      : null;
+
   async function loadTransactions() {
     setLoadingTransactions(true);
     const params = new URLSearchParams();
@@ -110,6 +123,35 @@ export default function HomeClient() {
     event.preventDefault();
     setStatus("");
     setToast(null);
+    if (createForm.occurredAt) {
+      const entered = new Date(createForm.occurredAt);
+      if (Number.isNaN(entered.getTime())) {
+        const message = "Timestamp is invalid.";
+        setStatus(message);
+        setToast({ type: "error", message });
+        return;
+      }
+      if (entered.getTime() > Date.now()) {
+        const message = "Timestamp cannot be in the future.";
+        setStatus(message);
+        setToast({ type: "error", message });
+        return;
+      }
+    }
+    if (Number.isFinite(amountNumber) && amountNumber > 0) {
+      if (!Number.isFinite(feeNumber) || feeNumber < 0) {
+        const message = "Fee must be zero or greater.";
+        setStatus(message);
+        setToast({ type: "error", message });
+        return;
+      }
+      if (feeNumber >= amountNumber) {
+        const message = "Fee must be less than amount.";
+        setStatus(message);
+        setToast({ type: "error", message });
+        return;
+      }
+    }
     setSubmittingPayment(true);
     const response = await fetch("/api/payments", {
       method: "POST",
@@ -135,7 +177,13 @@ export default function HomeClient() {
       : "Payment recorded.";
     setStatus(successMessage);
     setToast({ type: "success", message: successMessage });
-    setCreateForm({ merchantId: "", reference: "", amount: "", occurredAt: "" });
+    setCreateForm({
+      merchantId: "",
+      reference: "",
+      amount: "",
+      fee: "",
+      occurredAt: "",
+    });
     await loadTransactions();
     await loadAuditLogs();
     setSubmittingPayment(false);
@@ -300,12 +348,13 @@ export default function HomeClient() {
             <div>
               <h2 className="text-lg font-semibold text-slate-900">Record Payment</h2>
               <p className="text-sm text-slate-500">
-                Fee and net amounts are calculated automatically.
+                Net amount is calculated automatically.
               </p>
               <form className="mt-4 grid gap-4" onSubmit={handleCreatePayment}>
                 <div className="grid gap-2">
                   <label className="text-xs font-semibold text-slate-600">
                     Merchant ID
+                    <span className="ml-1 text-rose-500">*</span>
                   </label>
                   <input
                     className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
@@ -323,6 +372,7 @@ export default function HomeClient() {
                 <div className="grid gap-2">
                   <label className="text-xs font-semibold text-slate-600">
                     Reference
+                    <span className="ml-1 text-rose-500">*</span>
                   </label>
                   <input
                     className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
@@ -338,25 +388,60 @@ export default function HomeClient() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <label className="text-xs font-semibold text-slate-600">
-                    Amount
-                  </label>
+  <label className="text-xs font-semibold text-slate-600">
+    Amount
+    <span className="ml-1 text-rose-500">*</span>
+  </label>
+  <input
+    type="number"
+    step="0.01"
+    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+    value={createForm.amount}
+    disabled={submittingPayment}
+    onChange={(event) =>
+      setCreateForm((prev) => ({
+        ...prev,
+        amount: event.target.value,
+      }))
+    }
+    required
+  />
+</div>
+<div className="grid gap-2">
+  <label className="text-xs font-semibold text-slate-600">
+    Fee
+    <span className="ml-1 text-rose-500">*</span>
+  </label>
                   <input
                     type="number"
                     step="0.01"
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
-                    value={createForm.amount}
-                    disabled={submittingPayment}
-                    onChange={(event) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        amount: event.target.value,
-                      }))
+                    min="0"
+                    max={
+                      Number.isFinite(amountNumber) && amountNumber > 0
+                        ? Math.max(0, amountNumber - 0.01)
+                        : undefined
                     }
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+                    value={createForm.fee}
+    disabled={submittingPayment}
+    onChange={(event) =>
+      setCreateForm((prev) => ({
+        ...prev,
+        fee: event.target.value,
+      }))
+    }
+    required
+  />
+  <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+      Net Amount
+    </div>
+    <div className="text-sm font-semibold text-slate-800">
+      {computedNet === null ? "—" : computedNet.toFixed(2)}
+    </div>
+  </div>
+</div>
+<div className="grid gap-2">
                   <label className="text-xs font-semibold text-slate-600">
                     Timestamp (optional)
                   </label>
@@ -364,6 +449,7 @@ export default function HomeClient() {
                     type="datetime-local"
                     className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
                     value={createForm.occurredAt}
+                    max={new Date().toISOString().slice(0, 16)}
                     disabled={submittingPayment}
                     onChange={(event) =>
                       setCreateForm((prev) => ({
@@ -372,6 +458,9 @@ export default function HomeClient() {
                       }))
                     }
                   />
+                  <p className="text-xs text-slate-500">
+                    Leave blank to use the current time.
+                  </p>
                 </div>
                 <button
                   type="submit"
@@ -438,6 +527,7 @@ export default function HomeClient() {
                   type="date"
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
                   value={filters.from}
+                  max={filters.to || todayDate}
                   onChange={(event) =>
                     setFilters((prev) => ({ ...prev, from: event.target.value }))
                   }
@@ -446,12 +536,14 @@ export default function HomeClient() {
                   type="date"
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
                   value={filters.to}
+                  min={filters.from || ""}
+                  max={todayDate}
                   onChange={(event) =>
                     setFilters((prev) => ({ ...prev, to: event.target.value }))
                   }
                 />
               </div>
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => {
@@ -632,3 +724,4 @@ export default function HomeClient() {
     </div>
   );
 }
+
