@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
-const FEE_RATE = 0.015;
-
 function parseAmount(value: unknown) {
   if (typeof value !== "string" && typeof value !== "number") {
     throw new Error("Amount is required.");
@@ -14,6 +12,20 @@ function parseAmount(value: unknown) {
   return amount;
 }
 
+function parseFee(value: unknown, amount: number) {
+  if (typeof value !== "string" && typeof value !== "number") {
+    throw new Error("Fee is required.");
+  }
+  const fee = Number(value);
+  if (!Number.isFinite(fee) || fee < 0) {
+    throw new Error("Fee must be zero or greater.");
+  }
+  if (fee >= amount) {
+    throw new Error("Fee must be less than amount.");
+  }
+  return fee;
+}
+
 function toDate(value: unknown) {
   if (!value) {
     return new Date();
@@ -21,6 +33,9 @@ function toDate(value: unknown) {
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) {
     throw new Error("Invalid timestamp.");
+  }
+  if (date.getTime() > Date.now()) {
+    throw new Error("Timestamp cannot be in the future.");
   }
   return date;
 }
@@ -40,7 +55,7 @@ export async function POST(request: Request) {
     }
 
     const amount = parseAmount(body.amount);
-    const fee = Math.round(amount * FEE_RATE * 100) / 100;
+    const fee = parseFee(body.fee, amount);
     const netAmount = Math.round((amount - fee) * 100) / 100;
     const occurredAt = toDate(body.occurredAt);
 
