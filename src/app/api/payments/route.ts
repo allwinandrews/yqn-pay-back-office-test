@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
+
+export const runtime = "nodejs";
 
 function parseAmount(value: unknown) {
   if (typeof value !== "string" && typeof value !== "number") {
@@ -28,7 +31,7 @@ function parseFee(value: unknown, amount: number) {
 
 function toDate(value: unknown) {
   if (!value) {
-    return new Date();
+    throw new Error("Timestamp is required.");
   }
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) {
@@ -38,6 +41,18 @@ function toDate(value: unknown) {
     throw new Error("Timestamp cannot be in the future.");
   }
   return date;
+}
+
+function buildIdempotencyKey(
+  merchantId: string,
+  reference: string,
+  amount: number,
+  occurredAt: Date
+) {
+  const normalizedAmount = amount.toFixed(2);
+  const normalizedTimestamp = occurredAt.toISOString();
+  const payload = `${merchantId}|${reference}|${normalizedAmount}|${normalizedTimestamp}`;
+  return createHash("sha256").update(payload).digest("hex");
 }
 
 export async function POST(request: Request) {
@@ -58,70 +73,53 @@ export async function POST(request: Request) {
     const fee = parseFee(body.fee, amount);
     const netAmount = Math.round((amount - fee) * 100) / 100;
     const occurredAt = toDate(body.occurredAt);
+    const idempotencyKey = buildIdempotencyKey(
+      merchantId,
+      reference,
+      amount,
+      occurredAt
+    );
 
-    const insertResult = await supabaseAdmin
-      .from("transactions")
-      .insert({
-        type: "PAYMENT",
-        merchant_id: merchantId,
-        reference,
-        amount,
-        fee,
-        net_amount: netAmount,
-        occurred_at: occurredAt.toISOString(),
-      })
-      .select()
-      .single();
-
-    if (insertResult.error) {
-      if (insertResult.error.code === "23505") {
-        const existing = await supabaseAdmin
-          .from("transactions")
-          .select("*")
-          .eq("merchant_id", merchantId)
-          .eq("reference", reference)
-          .eq("type", "PAYMENT")
-          .single();
-
-        if (existing.data) {
-          await supabaseAdmin.from("audit_log").insert({
-            actor,
-            action: "payment_duplicate_ignored",
-            entity_type: "transaction",
-            entity_id: existing.data.id,
-            details: {
-              merchantId,
-              reference,
-              attemptedAmount: amount,
-            },
-          });
-
-          return NextResponse.json({ transaction: existing.data, duplicate: true });
-        }
-      }
-      throw insertResult.error;
-    }
-
-    const transaction = insertResult.data;
-
-    await supabaseAdmin.from("audit_log").insert({
-      actor,
-      action: "payment_created",
-      entity_type: "transaction",
-      entity_id: transaction.id,
-      details: {
-        merchantId,
-        reference,
-        amount,
-        fee,
-        netAmount,
-        occurredAt: occurredAt.toISOString(),
-      },
+    const result = await supabaseAdmin.rpc("record_payment", {
+      p_merchant_id: merchantId,
+      p_reference: reference,
+      p_amount: amount,
+      p_fee: fee,
+      p_net_amount: netAmount,
+      p_occurred_at: occurredAt.toISOString(),
+      p_idempotency_key: idempotencyKey,
+      p_actor: actor,
     });
 
-    return NextResponse.json({ transaction });
+    if (result.error) {
+      throw result.error;
+    }
+
+    const payload = Array.isArray(result.data)
+      ? result.data[0]
+      : result.data;
+
+    if (!payload) {
+      return NextResponse.json(
+        { error: "Failed to create payment." },
+        { status: 500 }
+      );
+    }
+
+    const { duplicate, ...transaction } = payload;
+
+    return NextResponse.json({
+      transaction,
+      ...(duplicate ? { duplicate: true } : {}),
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected error";
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message?: unknown }).message)
+        : "Unexpected error";
+    console.error("Payment error", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

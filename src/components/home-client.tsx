@@ -59,6 +59,16 @@ export default function HomeClient() {
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [confirmReversalId, setConfirmReversalId] = useState<string | null>(null);
+  const hasAnyFilters = Boolean(
+    filters.merchantId || filters.reference || filters.from || filters.to
+  );
+  const hasAppliedFilters = Boolean(
+    appliedFilters.merchantId ||
+      appliedFilters.reference ||
+      appliedFilters.from ||
+      appliedFilters.to
+  );
+  const hasTransactions = transactions.length > 0;
 
   function setSection(section: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -121,8 +131,15 @@ export default function HomeClient() {
 
   async function handleCreatePayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingPayment) return;
     setStatus("");
     setToast(null);
+    if (!createForm.occurredAt) {
+      const message = "Timestamp is required.";
+      setStatus(message);
+      setToast({ type: "error", message });
+      return;
+    }
     if (createForm.occurredAt) {
       const entered = new Date(createForm.occurredAt);
       if (Number.isNaN(entered.getTime())) {
@@ -158,7 +175,7 @@ export default function HomeClient() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...createForm,
-        occurredAt: createForm.occurredAt || undefined,
+        occurredAt: createForm.occurredAt,
       }),
     });
     const payload = await response.json();
@@ -441,9 +458,10 @@ export default function HomeClient() {
     </div>
   </div>
 </div>
-<div className="grid gap-2">
+                <div className="grid gap-2">
                   <label className="text-xs font-semibold text-slate-600">
-                    Timestamp (optional)
+                    Timestamp
+                    <span className="ml-1 text-rose-500">*</span>
                   </label>
                   <input
                     type="datetime-local"
@@ -457,10 +475,8 @@ export default function HomeClient() {
                         occurredAt: event.target.value,
                       }))
                     }
+                    required
                   />
-                  <p className="text-xs text-slate-500">
-                    Leave blank to use the current time.
-                  </p>
                 </div>
                 <button
                   type="submit"
@@ -562,13 +578,18 @@ export default function HomeClient() {
                     router.replace(`${pathname}?${params.toString()}`);
                     loadTransactions();
                   }}
-                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                  disabled={!hasAnyFilters}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Apply Filters
                 </button>
                 <a
                   href={exportUrl}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+                  className={`rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white ${
+                    hasTransactions
+                      ? ""
+                      : "pointer-events-none cursor-not-allowed opacity-50"
+                  }`}
                 >
                   Export CSV
                 </a>
@@ -576,6 +597,7 @@ export default function HomeClient() {
                   type="button"
                   onClick={() => {
                     setFilters(defaultFilters);
+                    if (!hasAppliedFilters) return;
                     setAppliedFilters(defaultFilters);
                     const params = new URLSearchParams(searchParams.toString());
                     params.delete("merchantId");
@@ -586,7 +608,8 @@ export default function HomeClient() {
                     router.replace(`${pathname}?${params.toString()}`);
                     loadTransactions();
                   }}
-                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  disabled={!hasAnyFilters}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Reset
                 </button>
