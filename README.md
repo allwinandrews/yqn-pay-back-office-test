@@ -4,7 +4,7 @@ Tiny back-office system to record, reverse, and export merchant payment transact
 
 ## Features
 - Record payments with merchant ID, amount, fee, timestamp, and reference.
-- Prevent duplicate payment ingestion (same merchant + reference).
+- Prevent duplicate payment ingestion via idempotency key.
 - Reverse payments by adding a reversal entry (no deletes).
 - Audit log that captures every change (who/what/when).
 - CSV export for merchant or date range.
@@ -33,14 +33,18 @@ Tiny back-office system to record, reverse, and export merchant payment transact
    ```
 5. Open `http://localhost:3000`.
 
+## Deployment
+- https://yqn-pay-back-office-test-931c.vercel.app/
+
 ## Demo Script
-1. Record a payment with `merchantId=demo`, `reference=INV-100`, `amount=100`.
-2. Try recording the same payment again → duplicate ignored.
+1. Record a payment with `merchantId=demo`, `reference=INV-100`, `amount=100`, and a fixed timestamp.
+2. Try recording the same payment again with the same timestamp -> duplicate ignored.
 3. Reverse the payment from the Transactions table.
 4. Export CSV with the current filter.
-5. Show audit log entries for create, duplicate attempt, and reversal.
+5. Show audit log entries for create and reversal.
 
 ## Notes
 - Fee rule: `1.5%` of amount, stored to two decimals.
 - Reversal entries use negative amounts to cancel the original payment.
 - Activity log is append-only; no deletions or edits.
+- Timestamp is required for payment ingestion.
