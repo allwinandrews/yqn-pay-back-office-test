@@ -539,7 +539,7 @@ export default function HomeClient() {
                 </div>
                 <button
                   type="button"
-                  onClick={loadTransactions}
+                  onClick={() => loadTransactions()}
                   aria-label="Refresh transactions"
                   className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
                 >
@@ -777,7 +777,7 @@ export default function HomeClient() {
               </h2>
               <button
                 type="button"
-                onClick={loadAuditLogs}
+                onClick={() => loadAuditLogs()}
                 aria-label="Refresh audit log"
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
               >
