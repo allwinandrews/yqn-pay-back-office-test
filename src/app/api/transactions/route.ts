@@ -8,19 +8,34 @@ function parseDate(value: string | null) {
   return date;
 }
 
+function parsePositiveInt(value: string | null, fallback: number) {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const merchantId = searchParams.get("merchantId")?.trim();
   const reference = searchParams.get("reference")?.trim();
   const from = parseDate(searchParams.get("from"));
   const to = parseDate(searchParams.get("to"));
+  const page = parsePositiveInt(searchParams.get("page"), 1);
+  const pageSizeRaw = parsePositiveInt(searchParams.get("pageSize"), 25);
+  const pageSize = Math.min(pageSizeRaw, 100);
+  const rangeFrom = (page - 1) * pageSize;
+  const rangeTo = rangeFrom + pageSize - 1;
 
   let query = supabaseAdmin
     .from("transactions")
     .select(
-      "id, type, merchant_id, reference, amount, fee, net_amount, occurred_at, original_transaction_id"
+      "id, type, merchant_id, reference, amount, fee, net_amount, occurred_at, original_transaction_id",
+      { count: "exact" }
     )
-    .order("occurred_at", { ascending: false });
+    .order("occurred_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(rangeFrom, rangeTo);
 
   if (merchantId) query = query.eq("merchant_id", merchantId);
   if (reference) query = query.eq("reference", reference);
@@ -66,5 +81,18 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  return NextResponse.json({ data });
+  const total = result.count ?? 0;
+  const totalPages = total === 0 ? 1 : Math.ceil(total / pageSize);
+
+  return NextResponse.json({
+    data,
+    pagination: {
+      page,
+      pageSize,
+      total,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    },
+  });
 }

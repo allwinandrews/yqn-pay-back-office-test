@@ -27,6 +27,15 @@ type AuditRow = {
   created_at: string;
 };
 
+type Pagination = {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+};
+
 const defaultFilters = {
   merchantId: "",
   reference: "",
@@ -49,7 +58,14 @@ export default function HomeClient() {
   const [filters, setFilters] = useState(defaultFilters);
   const [appliedFilters, setAppliedFilters] = useState(defaultFilters);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
+  const [transactionsPagination, setTransactionsPagination] =
+    useState<Pagination | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditRow[]>([]);
+  const [auditPagination, setAuditPagination] = useState<Pagination | null>(null);
+  const [transactionsPage, setTransactionsPage] = useState(1);
+  const [auditPage, setAuditPage] = useState(1);
+  const transactionsPageSize = 25;
+  const auditPageSize = 20;
   const [status, setStatus] = useState<string>("");
   const [toast, setToast] = useState<{
     type: "success" | "error";
@@ -105,27 +121,39 @@ export default function HomeClient() {
       ? Math.round((amountNumber - feeNumber) * 100) / 100
       : null;
 
-  async function loadTransactions() {
+  async function loadTransactions(
+    page = transactionsPage,
+    filtersOverride = appliedFilters
+  ) {
     setLoadingTransactions(true);
     const params = new URLSearchParams();
-    if (appliedFilters.merchantId)
-      params.set("merchantId", appliedFilters.merchantId);
-    if (appliedFilters.reference)
-      params.set("reference", appliedFilters.reference);
-    if (appliedFilters.from) params.set("from", appliedFilters.from);
-    if (appliedFilters.to) params.set("to", appliedFilters.to);
+    if (filtersOverride.merchantId)
+      params.set("merchantId", filtersOverride.merchantId);
+    if (filtersOverride.reference)
+      params.set("reference", filtersOverride.reference);
+    if (filtersOverride.from) params.set("from", filtersOverride.from);
+    if (filtersOverride.to) params.set("to", filtersOverride.to);
+    params.set("page", String(page));
+    params.set("pageSize", String(transactionsPageSize));
 
     const response = await fetch(`/api/transactions?${params.toString()}`);
     const payload = await response.json();
     setTransactions(payload.data || []);
+    setTransactionsPagination(payload.pagination || null);
+    setTransactionsPage(payload.pagination?.page ?? page);
     setLoadingTransactions(false);
   }
 
-  async function loadAuditLogs() {
+  async function loadAuditLogs(page = auditPage) {
     setLoadingAudit(true);
-    const response = await fetch("/api/audit?limit=25");
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("pageSize", String(auditPageSize));
+    const response = await fetch(`/api/audit?${params.toString()}`);
     const payload = await response.json();
     setAuditLogs(payload.data || []);
+    setAuditPagination(payload.pagination || null);
+    setAuditPage(payload.pagination?.page ?? page);
     setLoadingAudit(false);
   }
 
@@ -201,8 +229,10 @@ export default function HomeClient() {
       fee: "",
       occurredAt: "",
     });
+    setTransactionsPage(1);
+    setAuditPage(1);
     await loadTransactions();
-    await loadAuditLogs();
+    await loadAuditLogs(1);
     setSubmittingPayment(false);
   }
 
@@ -227,8 +257,10 @@ export default function HomeClient() {
     const successMessage = payload.duplicate ? "Already reversed." : "Reversal added.";
     setStatus(successMessage);
     setToast({ type: "success", message: successMessage });
+    setTransactionsPage(1);
+    setAuditPage(1);
     await loadTransactions();
-    await loadAuditLogs();
+    await loadAuditLogs(1);
   }
 
   async function confirmReverse() {
@@ -245,10 +277,6 @@ export default function HomeClient() {
   }, [toast]);
 
   useEffect(() => {
-    loadAuditLogs();
-  }, []);
-
-  useEffect(() => {
     if (activeSection !== "transactions") return;
     const merchantId = searchParams.get("merchantId") || "";
     const reference = searchParams.get("reference") || "";
@@ -257,12 +285,18 @@ export default function HomeClient() {
     const nextFilters = { merchantId, reference, from, to };
     setFilters(nextFilters);
     setAppliedFilters(nextFilters);
+    setTransactionsPage(1);
   }, [activeSection, searchParams]);
 
   useEffect(() => {
     if (activeSection !== "transactions") return;
-    loadTransactions();
-  }, [activeSection, appliedFilters]);
+    loadTransactions(transactionsPage);
+  }, [activeSection, appliedFilters, transactionsPage]);
+
+  useEffect(() => {
+    if (activeSection !== "audit") return;
+    loadAuditLogs(auditPage);
+  }, [activeSection, auditPage]);
 
   function formatTimestamp(value: string | null | undefined) {
     if (!value) return "Unknown time";
@@ -564,6 +598,7 @@ export default function HomeClient() {
                   type="button"
                   onClick={() => {
                     setAppliedFilters(filters);
+                    setTransactionsPage(1);
                     const params = new URLSearchParams(searchParams.toString());
                     if (filters.merchantId)
                       params.set("merchantId", filters.merchantId);
@@ -576,7 +611,6 @@ export default function HomeClient() {
                     else params.delete("to");
                     params.set("section", "transactions");
                     router.replace(`${pathname}?${params.toString()}`);
-                    loadTransactions();
                   }}
                   disabled={!hasAnyFilters}
                   className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -599,6 +633,7 @@ export default function HomeClient() {
                     setFilters(defaultFilters);
                     if (!hasAppliedFilters) return;
                     setAppliedFilters(defaultFilters);
+                    setTransactionsPage(1);
                     const params = new URLSearchParams(searchParams.toString());
                     params.delete("merchantId");
                     params.delete("reference");
@@ -606,7 +641,6 @@ export default function HomeClient() {
                     params.delete("to");
                     params.set("section", "transactions");
                     router.replace(`${pathname}?${params.toString()}`);
-                    loadTransactions();
                   }}
                   disabled={!hasAnyFilters}
                   className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -620,6 +654,7 @@ export default function HomeClient() {
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
                   <tr>
+                    <th className="py-3 pr-4">Transaction ID</th>
                     <th className="py-3 pr-4">Type</th>
                     <th className="py-3 pr-4">Merchant</th>
                     <th className="py-3 pr-4">Reference</th>
@@ -634,6 +669,7 @@ export default function HomeClient() {
                 <tbody>
                   {transactions.map((tx) => (
                     <tr key={tx.id} className="border-b border-slate-100">
+                      <td className="py-3 pr-4 text-slate-500">{tx.id}</td>
                       <td className="py-3 pr-4">
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
                           {tx.type}
@@ -674,7 +710,7 @@ export default function HomeClient() {
                         ) : (
                           <span className="text-xs text-slate-400">
                             {tx.type === "REVERSAL" && tx.originalTransactionId
-                              ? `Reversal of ${tx.originalTransactionId.slice(0, 8)}`
+                              ? `Reversal of ${tx.originalTransactionId}`
                               : "—"}
                           </span>
                         )}
@@ -684,7 +720,7 @@ export default function HomeClient() {
                   {transactions.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="py-6 text-center text-sm text-slate-400"
                       >
                         {loadingTransactions ? "Loading…" : "No transactions yet."}
@@ -694,6 +730,42 @@ export default function HomeClient() {
                 </tbody>
               </table>
             </div>
+            {transactionsPagination ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
+                <span>
+                  Page {transactionsPagination.page} of{" "}
+                  {transactionsPagination.totalPages} - {transactionsPagination.total} total
+                </span>
+                <div className="flex items-center gap-2">
+                  {transactionsPagination.hasPrev ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextPage = Math.max(1, transactionsPage - 1);
+                        setTransactionsPage(nextPage);
+                      }}
+                      disabled={loadingTransactions}
+                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                  ) : null}
+                  {transactionsPagination.hasNext ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextPage = transactionsPage + 1;
+                        setTransactionsPage(nextPage);
+                      }}
+                      disabled={loadingTransactions}
+                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -741,6 +813,42 @@ export default function HomeClient() {
                 </div>
               ) : null}
             </div>
+            {auditPagination ? (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
+                <span>
+                  Page {auditPagination.page} of {auditPagination.totalPages} -{" "}
+                  {auditPagination.total} total
+                </span>
+                <div className="flex items-center gap-2">
+                  {auditPagination.hasPrev ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextPage = Math.max(1, auditPage - 1);
+                        setAuditPage(nextPage);
+                      }}
+                      disabled={loadingAudit}
+                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                  ) : null}
+                  {auditPagination.hasNext ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextPage = auditPage + 1;
+                        setAuditPage(nextPage);
+                      }}
+                      disabled={loadingAudit}
+                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
       </div>
